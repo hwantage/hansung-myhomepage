@@ -1,6 +1,14 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "./vendor/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "./vendor/RoomEnvironment.js";
+import {
+  journeyStops,
+  getJourneyStage,
+  sampleJourney,
+  computerPorts,
+  hubComputerRoute,
+  computerKeyboardRoute,
+} from "./journey.js";
 
 const track = document.querySelector(".hero-track");
 const studio = document.querySelector("#studio");
@@ -14,6 +22,59 @@ const announcement = document.querySelector("#studio-announcement");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const menuButton = document.querySelector(".menu-toggle");
 const mobileMenu = document.querySelector("#mobile-menu");
+const journeyNav = document.querySelector(".journey-nav");
+const scrollCue = document.querySelector(".scroll-cue");
+const journeyTitle = chapterCopy.querySelector("h2");
+const journeyDescription = chapterCopy.querySelector("p");
+const journeyKicker = chapterCopy.querySelector(".chapter-kicker");
+const journeyButtons = journeyStops.map((stop, index) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.title = stop.name;
+  button.setAttribute("aria-label", `${index + 1}. ${stop.name} 구간으로 이동`);
+  button.addEventListener("click", () => {
+    window.scrollTo({
+      top: track.offsetTop + stop.at * (track.offsetHeight - innerHeight),
+      behavior: reducedMotion.matches ? "instant" : "smooth",
+    });
+  });
+  journeyNav.append(button);
+  return button;
+});
+let currentStage = -1;
+let journeyStarted = null;
+const studioLocation = document.querySelector(".studio-location");
+function updateJourneyCopy(progress) {
+  const started =
+    progress > 0.075 &&
+    !reducedMotion.matches &&
+    studio.dataset.ready !== "fallback";
+  if (started !== journeyStarted) {
+    journeyStarted = started;
+    journeyNav.hidden = !started;
+    scrollCue.hidden = false;
+    scrollCue.firstChild.textContent = started
+      ? "Skip to about"
+      : "Scroll to step inside";
+    studioLocation.textContent = started
+      ? "Scroll to follow the signal"
+      : "Drag to look around";
+  }
+  const index = getJourneyStage(progress);
+  if (index !== currentStage) {
+    currentStage = index;
+    const stop = journeyStops[index];
+    journeyTitle.textContent = stop.title;
+    journeyDescription.textContent = stop.copy;
+    journeyKicker.textContent = `${String(index + 1).padStart(2, "0")} / 08 — ${stop.name}`;
+    journeyButtons.forEach((button, i) => {
+      if (i === index) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+    });
+  }
+  studio.dataset.stage =
+    progress < 0.075 ? "overview" : journeyStops[index].key;
+}
 
 function closeMenu() {
   mobileMenu.hidden = true;
@@ -33,6 +94,7 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", () => {
   if (innerWidth > 800) closeMenu();
+  updateScroll();
 });
 document.querySelectorAll(".approach-list details").forEach((detail) => {
   detail.addEventListener("toggle", () => {
@@ -45,24 +107,27 @@ document.querySelectorAll(".approach-list details").forEach((detail) => {
 
 let scrollProgress = 0;
 let requestSceneFrame = () => {};
-function updateScroll() {
-  const rect = track.getBoundingClientRect();
-  scrollProgress = THREE.MathUtils.clamp(
-    -rect.top / Math.max(1, track.offsetHeight - innerHeight),
-    0,
-    1,
-  );
-  const exit = reducedMotion.matches
-    ? 0
-    : THREE.MathUtils.smoothstep(scrollProgress, 0.08, 0.43);
-  const enter = reducedMotion.matches
-    ? 0
-    : THREE.MathUtils.smoothstep(scrollProgress, 0.42, 0.76);
+function updatePresentation(progress) {
+  const exit = THREE.MathUtils.smoothstep(progress, 0.025, 0.095);
+  const enter = THREE.MathUtils.smoothstep(progress, 0.085, 0.12);
   heroCopy.style.opacity = String(1 - exit);
   heroCopy.style.transform = `perspective(1200px) translateY(${-exit * 70}px) rotateX(${exit * 10}deg)`;
   chapterCopy.style.opacity = String(enter);
   chapterCopy.style.transform = `translateY(${(1 - enter) * 25}px)`;
-  progressBar.style.transform = `scaleX(${scrollProgress})`;
+  progressBar.style.transform = `scaleX(${progress})`;
+}
+function updateScroll() {
+  const rect = track.getBoundingClientRect();
+  const staticWorkspace =
+    reducedMotion.matches || studio.dataset.ready === "fallback";
+  scrollProgress = staticWorkspace
+    ? 0
+    : THREE.MathUtils.clamp(
+        -rect.top / Math.max(1, track.offsetHeight - innerHeight),
+        0,
+        1,
+      );
+  if (staticWorkspace) updatePresentation(0);
   header.classList.toggle("scrolled", scrollY > 80);
   requestSceneFrame();
 }
@@ -93,13 +158,19 @@ function showFallback(error) {
   screenButton.hidden = true;
   motionButton.hidden = true;
   studio.dataset.ready = "fallback";
+  track.classList.add("static-workspace");
+  chapterCopy.hidden = true;
+  journeyNav.hidden = true;
+  journeyStarted = null;
+  scrollCue.hidden = false;
+  updateScroll();
 }
 
 function createWorkspace() {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: false,
-    powerPreference: "low-power",
+    powerPreference: "high-performance",
   });
   renderer.setPixelRatio(
     Math.min(devicePixelRatio, innerWidth < 800 ? 1.5 : 1.75),
@@ -107,6 +178,8 @@ function createWorkspace() {
   renderer.setClearColor(0xd9e8f1, 1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Camera travel does not change the light-space shadow map.
+  renderer.shadowMap.autoUpdate = false;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.17;
@@ -529,6 +602,42 @@ function createWorkspace() {
       0.004,
     );
   cylinder(0.039, 0.039, 0.015, mat.blue, 0.32, 1.035, 0.52, tower);
+  // Rear I/O: the network cable enters the back, never a front intake fan.
+  box(0.97, 1.83, 0.028, mat.silver, 0, 0, -0.884, tower, 0.02);
+  box(0.39, 1.08, 0.025, mat.dark, -0.27, 0.24, -0.91, tower, 0.02);
+  for (const y of [0.6, 0.43]) {
+    box(0.23, 0.083, 0.024, mat.silver, -0.27, y, -0.93, tower, 0.008);
+    box(0.17, 0.038, 0.025, mat.screenEdge, -0.27, y, -0.946, tower, 0.005);
+  }
+  box(0.26, 0.17, 0.025, mat.silver, -0.27, 0.14, -0.932, tower, 0.009);
+  box(0.2, 0.105, 0.027, mat.dark, -0.27, 0.14, -0.951, tower, 0.006);
+  box(0.18, 0.085, 0.16, mat.blue, ...computerPorts.network.plug, world, 0.012);
+  box(0.1, 0.019, 0.1, mat.lavender, -0.27, 0.192, -1.0, tower, 0.004);
+  box(0.034, 0.025, 0.016, mat.blue, -0.08, 0.19, -0.938, tower, 0.004);
+  box(0.23, 0.11, 0.027, mat.dark, -0.27, -0.23, -0.935, tower, 0.006);
+  box(0.18, 0.063, 0.16, mat.silver, ...computerPorts.usb.plug, world, 0.009);
+  mesh(
+    new THREE.TorusGeometry(0.25, 0.018, 8, 32),
+    mat.dark,
+    0.23,
+    0.56,
+    -0.925,
+    tower,
+  );
+  for (let i = 0; i < 8; i++)
+    box(
+      0.34,
+      0.018,
+      0.019,
+      mat.screenEdge,
+      0.23,
+      0.38 + i * 0.051,
+      -0.934,
+      tower,
+      0.003,
+    );
+  for (let i = 0; i < 4; i++)
+    box(0.77, 0.045, 0.023, mat.dark, 0, -0.35 - i * 0.14, -0.93, tower, 0.006);
   lifted(tower, 0.08);
 
   const keyboard = group(-0.55, 0.245, 1.33);
@@ -658,8 +767,9 @@ function createWorkspace() {
         (row === 0 && col === 0) || (row === 2 && col === count - 1),
       );
   }
+  // Leave a real gap before the spacebar; coplanar overlapping key tops flicker.
   for (let col = 0; col < 4; col++)
-    keycap(-1.53 + col * 0.255, 0.47, 0.223, labelIndex++);
+    keycap(-1.63 + col * 0.24, 0.47, 0.223, labelIndex++);
   keycap(0.04, 0.47, 1.61, null, true);
   for (let col = 0; col < 4; col++)
     keycap(1.0 + col * 0.235, 0.47, 0.201, labelIndex++);
@@ -772,7 +882,8 @@ function createWorkspace() {
   );
   handle.rotation.y = Math.PI / 2;
 
-  const notebook = group(-4.26, 0.23, 1.35);
+  const notebook = group(-4.48, 0.23, 1.92);
+  notebook.scale.setScalar(0.78);
   notebook.rotation.y = -0.22;
   box(1.05, 0.08, 1.43, mat.blue, 0, 0, 0, notebook, 0.027);
   box(0.98, 0.045, 1.37, mat.porcelain, 0.012, 0.038, -0.012, notebook, 0.012);
@@ -838,7 +949,7 @@ function createWorkspace() {
   cylinder(0.13, 0.4, 0.36, mat.blue, 0, 0, 0, shade);
   cylinder(0.36, 0.36, 0.01, mat.light, 0, -0.19, 0, shade);
 
-  const plant = group(-4.78, 0.48, 0.2);
+  const plant = group(-4.98, 0.48, -0.6);
   cylinder(0.37, 0.27, 0.66, mat.porcelain, 0, 0, 0, plant);
   cylinder(0.331, 0.331, 0.01, mat.soil, 0, 0.326, 0, plant);
   for (let i = 0; i < 7; i++) {
@@ -899,6 +1010,251 @@ function createWorkspace() {
     mat.silver,
   );
 
+  const hub = group(-4.4, 0.31, 0.58);
+  box(1.42, 0.27, 0.78, mat.white, 0, 0, 0, hub, 0.055);
+  box(1.32, 0.18, 0.021, mat.silver, 0, -0.01, 0.398, hub, 0.01);
+  const hubLabel = makeTexture(1024, 256, (ctx) => {
+    ctx.fillStyle = "#eff3fa";
+    ctx.fillRect(0, 0, 1024, 256);
+    ctx.fillStyle = "#3932dc";
+    ctx.font = "bold 54px monospace";
+    ctx.fillText("WORKSPACE / LINK", 48, 108);
+    ctx.fillStyle = "#67738c";
+    ctx.font = "30px monospace";
+    ctx.fillText("01    02    03    04", 64, 202);
+  });
+  const label = panel(1.22, 0.3, hubLabel.texture, 0, 0.138, 0, hub);
+  label.rotation.x = -Math.PI / 2;
+  const ledOn = new THREE.MeshBasicMaterial({
+    color: 0x71c6c0,
+    toneMapped: false,
+  });
+  for (let i = 0; i < 4; i++) {
+    const x = -0.47 + i * 0.315;
+    box(0.24, 0.115, 0.03, mat.dark, x, -0.012, 0.416, hub, 0.012);
+    box(0.17, 0.066, 0.025, mat.soil, x, -0.018, 0.434, hub, 0.005);
+    for (let pin = 0; pin < 6; pin++)
+      box(
+        0.009,
+        0.024,
+        0.013,
+        mat.silver,
+        x - 0.064 + pin * 0.025,
+        0.019,
+        0.452,
+        hub,
+        0.003,
+      );
+    box(
+      0.026,
+      0.018,
+      0.011,
+      i === 0 ? ledOn : mat.lavender,
+      x + 0.082,
+      0.073,
+      0.421,
+      hub,
+      0.003,
+    );
+  }
+  box(0.19, 0.087, 0.16, mat.blue, -0.47, -0.012, 0.479, hub, 0.013);
+
+  // A signal is revealed along one continuous route, then fans out to the desk.
+  const links = [];
+  const signalMaterial = new THREE.MeshBasicMaterial({
+    color: 0x3932dc,
+    toneMapped: false,
+  });
+  const haloMaterial = new THREE.MeshBasicMaterial({
+    color: 0x7378ff,
+    transparent: true,
+    opacity: 0.18,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const unlitMaterial = new THREE.MeshStandardMaterial({
+    color: 0x9daed1,
+    roughness: 0.5,
+  });
+  function signalLink(points, from, to, branch = false) {
+    const curve = new THREE.CatmullRomCurve3(
+      points.map((point) => new THREE.Vector3(...point)),
+      false,
+      "centripetal",
+    );
+    const segments = branch ? 96 : 160;
+    const cable = mesh(
+      new THREE.TubeGeometry(curve, segments, 0.012, 8, false),
+      unlitMaterial,
+      0,
+      0,
+      0,
+    );
+    const core = mesh(
+      new THREE.TubeGeometry(curve, segments, 0.027, 8, false),
+      signalMaterial,
+      0,
+      0,
+      0,
+    );
+    const halo = mesh(
+      new THREE.TubeGeometry(curve, segments, 0.068, 8, false),
+      haloMaterial,
+      0,
+      0,
+      0,
+    );
+    // Decorative signal paths do not need animated shadows.
+    cable.castShadow = core.castShadow = halo.castShadow = false;
+    core.geometry.setDrawRange(0, 0);
+    halo.geometry.setDrawRange(0, 0);
+    links.push({ curve, core, halo, cable, segments, from, to, branch });
+  }
+  signalLink(hubComputerRoute, 0.11, 0.26);
+  signalLink(computerKeyboardRoute, 0.26, 0.38);
+  signalLink(
+    [
+      [-2.42, 0.3, 1.33],
+      [-2.4, 0.2, 1.93],
+      [-1.8, 0.18, 2.15],
+      [-0.3, 0.18, 2.22],
+      [1.4, 0.18, 2.16],
+      [2.1, 0.22, 1.97],
+      [2.3, 0.31, 1.84],
+    ],
+    0.38,
+    0.49,
+  );
+  signalLink(
+    [
+      [2.3, 0.31, 1.84],
+      [2.85, 0.23, 1.83],
+      [2.98, 0.22, 1.2],
+      [2.58, 0.24, 0.74],
+      [2.06, 0.22, 0.82],
+      [1.76, 0.2, 1.4],
+      [2.02, 0.2, 1.98],
+      [2.9, 0.2, 2.24],
+      [3.89, 0.25, 2.13],
+    ],
+    0.49,
+    0.59,
+  );
+  signalLink(
+    [
+      [3.89, 0.25, 2.13],
+      [4.65, 0.24, 2.25],
+      [4.96, 0.28, 1.57],
+      [4.5, 0.31, 0.87],
+      [3.57, 0.3, 0.8],
+      [3.03, 0.26, 1.38],
+      [3.23, 0.21, 2.04],
+      [3.94, 0.22, 2.46],
+      [4.83, 0.23, 1.94],
+      [4.6, 0.3, 0.6],
+      [3.94, 0.3, 0.12],
+    ],
+    0.59,
+    0.69,
+  );
+  signalLink(
+    [
+      [3.94, 0.3, 0.12],
+      [4.28, 0.36, 0.18],
+      [4.32, 0.78, 0.18],
+      [4, 1.01, 0.18],
+      [3.6, 0.77, 0.18],
+      [3.64, 0.32, 0.18],
+      [3.94, 0.22, 0.18],
+      [3.2, 0.2, -0.32],
+      [2.05, 0.22, -0.65],
+      [0.95, 0.24, -0.3],
+      [-0.55, 0.25, -0.3],
+      [-0.55, 0.63, -0.7],
+    ],
+    0.69,
+    0.8,
+  );
+  const origin = [-0.55, 0.63, -0.7];
+  signalLink(
+    [origin, [0.3, 0.42, -1.82], [1.72, 0.35, -1.93], [2.85, 0.61, -1.11]],
+    0.81,
+    0.93,
+    true,
+  );
+  signalLink(
+    [origin, [-1.2, 0.34, -0.31], [-1.9, 0.32, 0.06], [-2.63, 0.48, -0.32]],
+    0.83,
+    0.94,
+    true,
+  );
+  signalLink(
+    [origin, [-1.05, 0.25, 0.65], [-1.85, 0.23, 1.99], [-3.06, 0.18, 1.93]],
+    0.85,
+    0.96,
+    true,
+  );
+  signalLink(
+    [
+      origin,
+      [-1.44, 0.31, -2.36],
+      [-3.6, 0.26, -2.43],
+      [-5.08, 0.28, -1.28],
+      [-4.98, 0.75, -0.6],
+    ],
+    0.86,
+    0.97,
+    true,
+  );
+  signalLink(
+    [origin, [0.4, 0.26, -2.4], [3.26, 0.24, -2.43], [4.53, 0.22, -1.93]],
+    0.88,
+    0.99,
+    true,
+  );
+  const signalHead = mesh(
+    new THREE.SphereGeometry(0.07, 20, 12),
+    new THREE.MeshBasicMaterial({ color: 0xd0eaff, toneMapped: false }),
+    0,
+    0,
+    0,
+  );
+  const signalHalo = mesh(
+    new THREE.SphereGeometry(0.15, 16, 10),
+    new THREE.MeshBasicMaterial({
+      color: 0x7878ff,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    0,
+    0,
+    0,
+  );
+  signalHead.castShadow = signalHalo.castShadow = false;
+  function updateSignal(progress) {
+    let active = null;
+    for (const link of links) {
+      const amount = THREE.MathUtils.clamp(
+        (progress - link.from) / (link.to - link.from),
+        0,
+        1,
+      );
+      const indices = Math.floor(amount * link.segments) * 8 * 6;
+      link.core.geometry.setDrawRange(0, indices);
+      link.halo.geometry.setDrawRange(0, indices);
+      link.cable.visible = progress > 0.07;
+      if (!link.branch && amount > 0 && amount < 1) active = { link, amount };
+    }
+    signalHead.visible = signalHalo.visible = Boolean(active);
+    if (active) {
+      active.link.curve.getPointAt(active.amount, signalHead.position);
+      signalHalo.position.copy(signalHead.position);
+    }
+    studio.dataset.signal = progress.toFixed(3);
+  }
+
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 100),
     new THREE.ShadowMaterial({ opacity: 0.12 }),
@@ -907,6 +1263,64 @@ function createWorkspace() {
   floor.position.y = -1.65;
   floor.receiveShadow = true;
   scene.add(floor);
+
+  // Repeated keys, pins and ventilation slots share GPU draw calls. The source
+  // meshes stay in the graph for accurate picking and keyboard hover movement.
+  const meshBatches = [];
+  const repeatedMeshes = new Map();
+  world.updateMatrixWorld(true);
+  world.traverse((object) => {
+    if (
+      !object.isMesh ||
+      Array.isArray(object.material) ||
+      object.material.transparent
+    )
+      return;
+    const key = [
+      object.geometry.uuid,
+      object.material.uuid,
+      object.castShadow,
+      object.receiveShadow,
+    ].join(":");
+    if (!repeatedMeshes.has(key)) repeatedMeshes.set(key, []);
+    repeatedMeshes.get(key).push(object);
+  });
+  const instanceMatrix = new THREE.Matrix4();
+  const inverseWorld = new THREE.Matrix4();
+  function updateMeshBatch(batch) {
+    world.updateWorldMatrix(true, false);
+    inverseWorld.copy(world.matrixWorld).invert();
+    batch.objects.forEach((object, index) => {
+      object.updateWorldMatrix(true, false);
+      instanceMatrix.multiplyMatrices(inverseWorld, object.matrixWorld);
+      batch.mesh.setMatrixAt(index, instanceMatrix);
+    });
+    batch.mesh.instanceMatrix.needsUpdate = true;
+    batch.mesh.computeBoundingSphere();
+  }
+  for (const objects of repeatedMeshes.values()) {
+    if (objects.length < 3) continue;
+    const source = objects[0];
+    const mesh = new THREE.InstancedMesh(
+      source.geometry,
+      source.material,
+      objects.length,
+    );
+    mesh.castShadow = source.castShadow;
+    mesh.receiveShadow = source.receiveShadow;
+    const batch = {
+      mesh,
+      objects,
+      dynamic: objects.some((object) => object.userData.key),
+    };
+    updateMeshBatch(batch);
+    objects.forEach((object) => {
+      object.visible = false;
+    });
+    world.add(mesh);
+    meshBatches.push(batch);
+  }
+  let batchedHoveredKey = null;
 
   function changeScreen() {
     screenMode = (screenMode + 1) % modes.length;
@@ -934,6 +1348,8 @@ function createWorkspace() {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const lookTarget = new THREE.Vector3();
+  const cameraEye = new THREE.Vector3();
+  const cameraOffset = new THREE.Vector3();
   const startedAt = performance.now();
   let entrance = reducedMotion.matches ? 1 : 0;
   const useMotion = () => !paused && !reducedMotion.matches;
@@ -1001,6 +1417,7 @@ function createWorkspace() {
   });
   motionButton.addEventListener("click", () => {
     paused = !paused;
+    updateScroll();
     motionButton.setAttribute("aria-pressed", String(paused));
     motionButton.textContent = paused ? "움직임 재생" : "움직임 멈춤";
     announcement.textContent = paused
@@ -1009,12 +1426,25 @@ function createWorkspace() {
     requestSceneFrame();
   });
 
+  let viewportWidth = 0,
+    viewportHeight = 0,
+    overviewTop = 0,
+    overviewBottom = 0;
+  let shadowRotation = Infinity,
+    shadowPosition = Infinity,
+    shadowKey = null;
   function resize() {
     const { width, height } = studio.getBoundingClientRect();
     if (!width || !height) return;
-    renderer.setSize(width, height, false);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
+    if (width !== viewportWidth || height !== viewportHeight) {
+      viewportWidth = width;
+      viewportHeight = height;
+      renderer.setSize(width, height, false);
+    }
+    const styles = getComputedStyle(studio);
+    overviewTop =
+      (parseFloat(styles.getPropertyValue("--studio-top")) / 100) * height;
+    overviewBottom = parseFloat(styles.getPropertyValue("--studio-bottom"));
     requestSceneFrame();
   }
   function render(time) {
@@ -1036,26 +1466,67 @@ function createWorkspace() {
     entrance = motion ? Math.min(1, (time - startedAt) / 1600) : 1;
     const easeEntrance = 1 - Math.pow(1 - entrance, 3);
     const p = reducedMotion.matches ? 0 : smoothProgress;
-    const middle = THREE.MathUtils.smoothstep(p, 0, 0.6);
-    const end = THREE.MathUtils.smoothstep(p, 0.55, 1);
-    const mobile = innerWidth <= 800;
-    const fit = Math.max(1, (mobile ? 1.24 + end * 0.3 : 1.56) / camera.aspect);
-    const cameraX = (10 - middle * 5.1 + end * 2.2) * fit;
-    const cameraY = (8.8 - middle * 3.3 + end * 0.2) * fit;
-    const cameraZ = (13.5 - middle * 4.4 + end * 1.8) * fit;
-    camera.position.set(
-      cameraX + pointerX * 0.65,
-      cameraY + pointerY * 0.32 + (1 - easeEntrance) * 1.7,
-      cameraZ,
+    updatePresentation(p);
+    const open = THREE.MathUtils.smoothstep(p, 0.02, 0.11);
+    const top = overviewTop * (1 - open);
+    const viewHeight = Math.max(
+      1,
+      viewportHeight - top - overviewBottom * (1 - open),
     );
-    lookTarget.set(mobile ? -0.1 : -end * 2.4, 0.55 + middle * 0.35, 0);
+    // Expand the camera's view on a stable full-screen drawing buffer. Resizing
+    // that buffer on scroll clears it and causes expensive GPU reallocations.
+    const framing = sampleJourney(p, cameraEye, lookTarget);
+    camera.fov = framing.fov;
+    camera.setViewOffset(
+      viewportWidth,
+      viewHeight,
+      0,
+      -top,
+      viewportWidth,
+      viewportHeight,
+    );
+    const mobile = innerWidth <= 800;
+    const overview = 1 - THREE.MathUtils.smoothstep(p, 0.025, 0.115);
+    cameraOffset.copy(cameraEye).sub(lookTarget);
+    const horizontalFit =
+      framing.span /
+      (2 *
+        Math.tan(THREE.MathUtils.degToRad(framing.fov / 2)) *
+        cameraOffset.length() *
+        camera.aspect);
+    const fit = Math.max(
+      1,
+      (overview * (mobile ? 1.24 : 1.56)) / camera.aspect,
+      horizontalFit,
+    );
+    cameraOffset.multiplyScalar(fit);
+    camera.position.copy(lookTarget).add(cameraOffset);
+    camera.position.x += pointerX * (0.12 + overview * 0.53);
+    camera.position.y +=
+      pointerY * (0.07 + overview * 0.25) + (1 - easeEntrance) * 1.7;
     camera.lookAt(lookTarget);
-    world.rotation.y = pointerX * 0.04 + dragRotation;
+    world.rotation.y = (pointerX * 0.04 + dragRotation) * overview;
     world.position.y = -(1 - easeEntrance) * 0.38;
-    for (const { object, y, amount } of liftObjects)
-      object.position.y = y + end * amount;
+    for (const { object, y, amount } of liftObjects) object.position.y = y;
     for (const key of keyMeshes)
       key.position.y = key === hoveredKey ? 0.125 : 0.153;
+    if (hoveredKey !== batchedHoveredKey) {
+      for (const batch of meshBatches)
+        if (batch.dynamic) updateMeshBatch(batch);
+      batchedHoveredKey = hoveredKey;
+    }
+    if (
+      Math.abs(world.rotation.y - shadowRotation) > 0.002 ||
+      Math.abs(world.position.y - shadowPosition) > 0.002 ||
+      hoveredKey !== shadowKey
+    ) {
+      renderer.shadowMap.needsUpdate = true;
+      shadowRotation = world.rotation.y;
+      shadowPosition = world.position.y;
+      shadowKey = hoveredKey;
+    }
+    updateSignal(p);
+    updateJourneyCopy(p);
     renderer.render(scene, camera);
     studio.dataset.progress = p.toFixed(3);
     studio.dataset.camera = camera.position
@@ -1090,6 +1561,7 @@ function createWorkspace() {
     event.preventDefault();
     visible = false;
     if (frameId) cancelAnimationFrame(frameId);
+    frameId = 0;
     renderer.domElement.hidden = true;
     showFallback("WebGL context lost");
   });
@@ -1099,7 +1571,13 @@ function createWorkspace() {
     document.querySelector(".studio-fallback").hidden = true;
     screenButton.hidden = false;
     motionButton.hidden = reducedMotion.matches;
+    track.classList.remove("static-workspace");
+    chapterCopy.hidden = false;
     studio.dataset.ready = "true";
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
+    resize();
+    updateScroll();
     requestSceneFrame();
   });
   document.querySelector(".studio-loading").hidden = true;

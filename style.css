@@ -933,3 +933,139 @@ footer .brand {
     font-size: 8px;
   }
 }
+
+/* The workspace unfolds into a full-screen, scroll-driven signal journey. */
+.hero-track {
+  height: 1150svh;
+}
+.studio {
+  --studio-top: 34%;
+  --studio-bottom: 0px;
+  /* Keep the WebGL drawing buffer stable throughout the scroll journey. */
+  inset: 0;
+}
+.tour-caption {
+  top: auto;
+  bottom: 110px;
+  left: 40px;
+  width: 345px;
+  padding: 25px 28px;
+  border-radius: 16px;
+  background: rgba(252, 252, 252, 0.9);
+  backdrop-filter: blur(16px);
+}
+.tour-caption .chapter-kicker {
+  font-size: 11px;
+  margin-bottom: 15px;
+  color: var(--blue);
+}
+.tour-caption h2 {
+  font-size: 32px;
+  line-height: 1.09;
+  letter-spacing: -0.045em;
+}
+.tour-caption p {
+  font-size: 13px;
+  line-height: 1.85;
+  margin-top: 16px;
+}
+.journey-nav {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: 30px;
+  background: rgba(252, 252, 252, 0.82);
+  backdrop-filter: blur(12px);
+}
+.journey-nav button {
+  width: 24px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border-radius: 14px;
+}
+.journey-nav button::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 6px;
+  background: #adb4ca;
+  transition:
+    background 0.2s,
+    width 0.2s;
+}
+.journey-nav button[aria-current="step"]::before {
+  width: 18px;
+  background: var(--blue);
+}
+.journey-nav button:hover::before {
+  background: var(--blue);
+}
+.hero-track.static-workspace {
+  height: 100svh;
+}
+.hero-track.static-workspace .studio {
+  top: var(--studio-top);
+  bottom: var(--studio-bottom);
+}
+@media (max-width: 800px) {
+  .hero-track {
+    height: 1050svh;
+  }
+  .studio {
+    --studio-top: 22%;
+    --studio-bottom: 85px;
+  }
+  .tour-caption {
+    top: 82px;
+    bottom: auto;
+    left: 18px;
+    width: calc(100% - 36px);
+    padding: 17px 20px;
+    text-align: left;
+  }
+  .tour-caption h2 {
+    font-size: 24px;
+    line-height: 1.13;
+  }
+  .tour-caption .chapter-kicker {
+    font-size: 10px;
+    margin-bottom: 10px;
+  }
+  .tour-caption p {
+    font-size: 11px;
+    line-height: 1.8;
+    margin-top: 10px;
+  }
+  .journey-nav {
+    bottom: 44px;
+  }
+}
+@media (max-width: 360px) {
+  .studio {
+    --studio-top: 32%;
+    --studio-bottom: 65px;
+  }
+  .tour-caption {
+    top: 74px;
+    padding: 14px 17px;
+  }
+  .tour-caption h2 {
+    font-size: 22px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-track {
+    height: 100svh;
+  }
+  .journey-nav,
+  .tour-caption {
+    display: none;
+  }
+}

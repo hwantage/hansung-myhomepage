@@ -1,0 +1,13 @@
+{
+  "passed": 8,
+  "checks": [
+    "desktop: key -0.91 hover still works",
+    "desktop: key 0.04 hover still works",
+    "desktop: adjacent key resets without overlapping",
+    "desktop: spacebar click still switches the monitor",
+    "mobile: key -0.91 hover still works",
+    "mobile: key 0.04 hover still works",
+    "mobile: adjacent key resets without overlapping",
+    "mobile: spacebar click still switches the monitor"
+  ]
+}
