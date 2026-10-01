@@ -4,7 +4,7 @@
 
 
 
-특강 자료 : [나만의 홈페이지 만들기 (HTML 미리보기)](./Cloudflare-나만의-홈페이지-만들기.html)
+특강 자료 : [나만의 홈페이지 만들기 (HTML 미리보기)](https://myhomepage-8a9.pages.dev/Cloudflare-%EB%82%98%EB%A7%8C%EC%9D%98-%ED%99%88%ED%8E%98%EC%9D%B4%EC%A7%80-%EB%A7%8C%EB%93%A4%EA%B8%B0.html)
 
 
 
